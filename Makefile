@@ -7,7 +7,7 @@ CC = gcc
 CFLAGS = -g
 CPPFLAGS = -std=gnu90 -Wall -pedantic
 
-all: server
+all: server client
 
 server: server.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o server server.o
