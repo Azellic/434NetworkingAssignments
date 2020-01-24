@@ -6,15 +6,15 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-#define MAXBUFLEN 300 /* max number of bytes per message */
+#define MAXBUFLEN 100 /* max number of bytes per message */
 #define MAXREMLEN 83 /* max size for key + value + space*/
 
 static const int portLowLimit = 30000; /*Minimum port specified by assignment*/
 static const int portUprLimit = 40000; /*Maximum port specified by assignment*/
 const char delim[2] = " ";
 
-int myPort, theirPort;
-char myPortSt[6], theirPortSt[6];
+int theirPort;
+char theirPortSt[6];
 char* hostName;
 
 
@@ -33,6 +33,7 @@ void readCommand(char * buffer){
         token = strtok(buffer, delim);
         if (token != NULL) {
             command = token;
+            //TODO:Factor out key check if there is time
             if(strcmp(command, "add") == 0){
                 token = strtok(NULL, delim);
                 if(token != NULL){
@@ -49,7 +50,12 @@ void readCommand(char * buffer){
                             printf("%s is longer than 40 characters\n", value);
                         }
                         else{
-                            //TODO: Compose message and send it
+                            if(strtok(NULL, delim) != NULL){
+                                printf("Too many arguments\n");
+                            }
+                            else{
+                                //TODO: Compose message and send it
+                            }
                         }
                     }
                     else{
@@ -69,7 +75,12 @@ void readCommand(char * buffer){
                         printf("%s is longer than 40 characters\n", key);
                     }
                     else{
-                        //TODO: Compose message and send it
+                        if(strtok(NULL, delim) != NULL){
+                            printf("Too many arguments\n");
+                        }
+                        else{
+                            //TODO: Compose message and send it
+                        }
                     }
                 }
                 else{
@@ -85,7 +96,12 @@ void readCommand(char * buffer){
                         printf("%s is longer than 40 characters\n", key);
                     }
                     else{
-                        //TODO: Compose message and send it
+                        if(strtok(NULL, delim) != NULL){
+                            printf("Too many arguments\n");
+                        }
+                        else{
+                            //TODO: Compose message and send it
+                        }
                     }
                 }
                 else{
@@ -107,7 +123,8 @@ void readCommand(char * buffer){
 
 int main (int argc, char *argv[]) {
     char *buffer;
-    int ret, run = 1;
+    int ret, rv, run = 1;
+    struct addrinfo hints, *servinfo;
 
     /*Perform argument checks*/
     if (argc != 3){
@@ -123,6 +140,46 @@ int main (int argc, char *argv[]) {
     printf("Arguments: %s %d\n",  hostName, theirPort);
     strcpy(theirPortSt, argv[2]);
 
+    memset(&hints, 0, sizeof hints);
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	if ((rv = getaddrinfo(argv[1], theirPortSt, &hints, &servinfo)) != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+		return 1;
+	}
+
+    // loop through all the results and connect to the first we can
+	for(p = servinfo; p != NULL; p = p->ai_next) {
+		if ((sockfd = socket(p->ai_family, p->ai_socktype,
+				p->ai_protocol)) == -1) {
+			perror("client: socket");
+			continue;
+		}
+
+		if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+			perror("client: connect");
+			close(sockfd);
+			continue;
+		}
+
+		break;
+	}
+
+    if (p == NULL) {
+		fprintf(stderr, "client: failed to connect\n");
+		return 2;
+	}
+
+    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
+			s, sizeof s);
+
+    freeaddrinfo(servinfo); 
+
+	if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
+	    perror("recv");
+	    exit(1);
+	}
 
     buffer = (char *)malloc(sizeof(char*)*MAXBUFLEN);
     if(!buffer){
@@ -144,6 +201,7 @@ int main (int argc, char *argv[]) {
         }
 
         /* reset read buffer variables */
+        memset(buffer, 0, (size_t)MAXBUFLEN);
         free(buffer);
         buffer = NULL;
         buffer = (char *)malloc(sizeof(char*)*MAXBUFLEN);
@@ -153,4 +211,7 @@ int main (int argc, char *argv[]) {
         memset(buffer, 0, (size_t)MAXBUFLEN);
     }
 
+    /*cleanup*/
+    memset(buffer, 0, (size_t)MAXBUFLEN);
+    free(buffer);
 }

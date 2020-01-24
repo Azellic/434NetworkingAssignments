@@ -22,4 +22,4 @@ client.o: client.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o client.o client.c
 
 clean:
-	rm -rf *.o
+	rm -rf *.o server client
