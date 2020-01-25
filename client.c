@@ -2,9 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #define MAXBUFLEN 100 /* max number of bytes per message */
 #define MAXREMLEN 83 /* max size for key + value + space*/
@@ -18,101 +21,95 @@ char theirPortSt[6];
 char* hostName;
 
 
-
-
-
-void readCommand(char * buffer){
+int checkCommand(char * buffer){
     char *token, *command, *key, *value;
     int t;
-    /* Was the quit command entered? */
 
-    if(strcmp(buffer, "getall") == 0){
-        printf("command: getall\n");
-    }
-    else{
-        token = strtok(buffer, delim);
-        if (token != NULL) {
-            command = token;
-            //TODO:Factor out key check if there is time
-            if(strcmp(command, "add") == 0){
+    token = strtok(buffer, delim);
+    if (token != NULL) {
+        command = token;
+        /*TODO:Factor out key check if there is time*/
+        if(strcmp(command, "add") == 0){
+            token = strtok(NULL, delim);
+            if(token != NULL){
+                key = token;
+                t = strcspn(key, "\0");
                 token = strtok(NULL, delim);
-                if(token != NULL){
-                    key = token;
-                    t = strcspn(key, "\0");
-                    token = strtok(NULL, delim);
+                if(t > 40){
+                    printf("%s is longer than 40 characters\n", key);
+                    return 1;
+                }
+                else if(token != NULL){
+                    value = token;
+                    t = strcspn(value, "\0");
                     if(t > 40){
-                        printf("%s is longer than 40 characters\n", key);
+                        printf("%s is longer than 40 characters\n", value);
+                        return 1;
                     }
-                    else if(token != NULL){
-                        value = token;
-                        t = strcspn(value, "\0");
-                        if(t > 40){
-                            printf("%s is longer than 40 characters\n", value);
-                        }
-                        else{
-                            if(strtok(NULL, delim) != NULL){
-                                printf("Too many arguments\n");
-                            }
-                            else{
-                                //TODO: Compose message and send it
-                            }
-                        }
+
+                    if(strtok(NULL, delim) != NULL){
+                        printf("Too many arguments\n");
+                        return 1;
                     }
-                    else{
-                        printf("Cannot add without a value\n");
-                    }
+
                 }
                 else{
-                    printf("Cannot add without a key\n");
-                }
-            }
-            else if(strcmp(command, "getvalue") == 0){
-                token = strtok(NULL, delim);
-                if(token != NULL){
-                    key = token;
-                    t = strcspn(key, "\0");
-                    if(t > 40){
-                        printf("%s is longer than 40 characters\n", key);
-                    }
-                    else{
-                        if(strtok(NULL, delim) != NULL){
-                            printf("Too many arguments\n");
-                        }
-                        else{
-                            //TODO: Compose message and send it
-                        }
-                    }
-                }
-                else{
-                    printf("Cannot getvalue without a key\n");
-                }
-            }
-            else if(strcmp(command, "remove") == 0){
-                token = strtok(NULL, delim);
-                if(token != NULL){
-                    key = token;
-                    t = strcspn(key, "\0");
-                    if(t > 40){
-                        printf("%s is longer than 40 characters\n", key);
-                    }
-                    else{
-                        if(strtok(NULL, delim) != NULL){
-                            printf("Too many arguments\n");
-                        }
-                        else{
-                            //TODO: Compose message and send it
-                        }
-                    }
-                }
-                else{
-                    printf("Cannot remove without a key\n");
+                    printf("Cannot add without a value\n");
+                    return 1;
                 }
             }
             else{
-                printf("Command not recognized\n");
+                printf("Cannot add without a key\n");
+                return 1;
             }
         }
+        else if(strcmp(command, "getvalue") == 0){
+            token = strtok(NULL, delim);
+            if(token != NULL){
+                key = token;
+                t = strcspn(key, "\0");
+                if(t > 40){
+                    printf("%s is longer than 40 characters\n", key);
+                    return 1;
+                }
+
+                if(strtok(NULL, delim) != NULL){
+                    printf("Too many arguments\n");
+                    return 1;
+                }
+            }
+            else{
+                printf("Cannot getvalue without a key\n");
+                return 1;
+            }
+        }
+        else if(strcmp(command, "remove") == 0){
+            token = strtok(NULL, delim);
+            if(token != NULL){
+                key = token;
+                t = strcspn(key, "\0");
+                if(t > 40){
+                    printf("%s is longer than 40 characters\n", key);
+                    return 1;
+                }
+
+                if(strtok(NULL, delim) != NULL){
+                    printf("Too many arguments\n");
+                    return 1;
+                }
+
+            }
+            else{
+                printf("Cannot remove without a key\n");
+                return 1;
+            }
+        }
+        else{
+            printf("Command not recognized\n");
+            return 1;
+        }
     }
+    return 0;
 }
 
 
@@ -122,9 +119,11 @@ void readCommand(char * buffer){
 
 
 int main (int argc, char *argv[]) {
-    char *buffer;
-    int ret, rv, run = 1;
-    struct addrinfo hints, *servinfo;
+    char *buffer, *message;
+    int ret, rv, msglen, numbytes, run = 1;
+    int sockfd;
+    struct addrinfo hints, *servinfo, *p;
+    char recvbuf[MAXBUFLEN];
 
     /*Perform argument checks*/
     if (argc != 3){
@@ -144,12 +143,11 @@ int main (int argc, char *argv[]) {
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if ((rv = getaddrinfo(argv[1], theirPortSt, &hints, &servinfo)) != 0) {
+	if ((rv = getaddrinfo(hostName, theirPortSt, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		return 1;
 	}
 
-    // loop through all the results and connect to the first we can
 	for(p = servinfo; p != NULL; p = p->ai_next) {
 		if ((sockfd = socket(p->ai_family, p->ai_socktype,
 				p->ai_protocol)) == -1) {
@@ -162,7 +160,7 @@ int main (int argc, char *argv[]) {
 			close(sockfd);
 			continue;
 		}
-
+        printf("Connection found\n");
 		break;
 	}
 
@@ -171,15 +169,13 @@ int main (int argc, char *argv[]) {
 		return 2;
 	}
 
-    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
-			s, sizeof s);
-
-    freeaddrinfo(servinfo); 
-
+    freeaddrinfo(servinfo);
+/*
 	if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
 	    perror("recv");
 	    exit(1);
 	}
+*/
 
     buffer = (char *)malloc(sizeof(char*)*MAXBUFLEN);
     if(!buffer){
@@ -187,16 +183,49 @@ int main (int argc, char *argv[]) {
     }
     memset(buffer, 0, sizeof(MAXBUFLEN));
 
+    message = (char *)malloc(sizeof(char*)*MAXBUFLEN);
+    if(!message){
+        perror("malloc message");
+    }
+    memset(message, 0, sizeof(MAXBUFLEN));
+
     while(run){
         /* read a line */
         ret = read(0, buffer, MAXBUFLEN);
         if (ret > 0){ /* read success */
+            msglen = strcspn(buffer, "\r\n");
             buffer[strcspn(buffer, "\r\n")] = 0;    /*Remove \n from end*/
+            /* Was the quit command entered? */
             if (strcmp(buffer, "quit") == 0){
                 run = 0;
             }
+            /* The getall command will need multiple recv, check for it here*/
+            else if(strcmp(buffer, "getall") == 0){
+                strcpy(message, buffer); /*Make a copy of the message to pass */
+
+                if (send(sockfd, message, msglen, 0) == -1)
+            		perror("send");
+
+                numbytes = recv(sockfd, recvbuf, MAXBUFLEN-1, 0);
+
+                if(numbytes == -1) {
+                    perror("recv");
+                    exit(1);
+                }
+                recvbuf[numbytes] = '\0';
+                printf("recieved: %s\n", recvbuf);
+                if(strcmp(recvbuf, "0") == 0){
+                    printf("No key-value pairs\n");
+                }
+
+            }
             else{
-                readCommand(buffer);
+                strcpy(message, buffer); /*Make a copy of the message to pass */
+                if(checkCommand(buffer) == 0){
+                    if (send(sockfd, message, msglen, 0) == -1)
+                		perror("send");
+                }
+
             }
         }
 
@@ -209,9 +238,23 @@ int main (int argc, char *argv[]) {
             perror("(char *)malloc buffer");
         }
         memset(buffer, 0, (size_t)MAXBUFLEN);
+
+        /* reset read buffer variables */
+        memset(message, 0, (size_t)MAXBUFLEN);
+        free(message);
+        message = NULL;
+        message = (char *)malloc(sizeof(char*)*MAXBUFLEN);
+        if(!message){
+            perror("(char *)malloc message");
+        }
+        memset(message, 0, (size_t)MAXBUFLEN);
     }
 
     /*cleanup*/
     memset(buffer, 0, (size_t)MAXBUFLEN);
     free(buffer);
+    memset(message, 0, (size_t)MAXBUFLEN);
+    free(message);
+
+    return 0;
 }
