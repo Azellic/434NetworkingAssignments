@@ -9,7 +9,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define MAXBUFLEN 100 /* max number of bytes per message */
+#define MAXBUFLEN 101 /* max number of bytes per message */
 #define PORT "32345" /* port clients will connect to */
 #define BACKLOG 5
 
@@ -19,30 +19,98 @@ char *values[20];
 int kvSize = 0;
 
 
+
+
+
 char* removeCommand(char *key){
-    return "remove successful";
+    int i;
+
+    if(kvSize == 0){
+        return "No keys are stored";
+    }
+    for(i = 0; i < 20; i++){
+        if(keys[i]!=NULL){
+            if(strcmp(keys[i], key) == 0){
+                memset(keys[i], 0, sizeof(MAXBUFLEN));
+                free(keys[i]);
+                keys[i] = NULL;
+                memset(values[i], 0, sizeof(MAXBUFLEN));
+                free(values[i]);
+                values[i] = NULL;
+                kvSize--;
+                return "remove successful";
+            }
+        }
+    }
+    return "remove failed, key unfound";
 }
+
+
+
+
 
 char* getValueCommand(char *key){
     int i;
 
     for(i = 0; i < 20; i++){
-        if(strcmp(keys[i], key) == 0){
-            return values[i];
+        if(keys[i]!=NULL){
+            if(strcmp(keys[i], key) == 0){
+                return values[i];
+            }
         }
     }
     return "Key not found";
 }
 
+
+
+
 char* addCommand(char *key, char *val){
+    int i;
+
     if(kvSize >= 20){
         return "No space to add key value pairs";
     }
-    return "add successfully";
+
+    for(i = 0; i < 20; i++){
+        if(keys[i]!=NULL){
+            if(strcmp(keys[i], key) == 0){
+                return "Key already in use";
+            }
+        }
+    }
+
+    for(i = 0; i < 20; i++){
+        if(keys[i]==NULL){
+            keys[i] = (char *)malloc(sizeof(char*)*MAXBUFLEN);
+            if(!keys[i]){
+                perror("malloc message");
+            }
+            memset(keys[i], 0, sizeof(MAXBUFLEN));
+            strcpy(keys[i], key);
+
+            values[i] = (char *)malloc(sizeof(char*)*MAXBUFLEN);
+            if(!values[i]){
+                perror("malloc message");
+            }
+            memset(values[i], 0, sizeof(MAXBUFLEN));
+            strcpy(values[i], val);
+            kvSize++;
+            return "add successful";
+        }
+    }
+    return "add failed";
 }
 
-void sendKeyValue(int sockfd, char *key){
+
+
+
+
+
+
+void sendKeyValue(int sockfd, int index){
     char *msg;
+    char buf[MAXBUFLEN];
 
     msg = (char *)malloc(sizeof(char*)*MAXBUFLEN);
     if(!msg){
@@ -50,16 +118,26 @@ void sendKeyValue(int sockfd, char *key){
     }
     memset(msg, 0, sizeof(MAXBUFLEN));
     /*TODO compose message*/
+    sprintf(msg, "%s - %s", keys[index], values[index]);
 
-    /*if (send(newfd, msg, strlen(msg), 0) == -1){
+    if (send(sockfd, msg, strcspn(msg, "\0"), 0) == -1)
         perror("send");
-    }*/
+
+    recv(sockfd, buf, MAXBUFLEN-1, 0);
+
+
+
 
 
     memset(msg, 0, (size_t)MAXBUFLEN);
     free(msg);
     msg = NULL;
 }
+
+
+
+
+
 
 char* readCommand(char buffer[100]){
     char *token, *command, *key, *value;
@@ -120,7 +198,7 @@ char* readCommand(char buffer[100]){
                         message = "Too many arguments";
                     }
                     else{
-                        /*TODO: Compose message and send it*/
+                        message = getValueCommand(key);
                     }
                 }
             }
@@ -156,6 +234,12 @@ char* readCommand(char buffer[100]){
 
     return message;
 }
+
+
+
+
+
+
 
 
 int main(int argc, char *argv[]) {
@@ -215,16 +299,7 @@ int main(int argc, char *argv[]) {
 		perror("accept");
 	}
 
-    /*
-    message = (char *)malloc( sizeof(char*)*MAXBUFLEN );
-    if(!message){
-        perror("malloc message");
-
-    }
-    memset(message, 0, sizeof(MAXBUFLEN));
-    */
-
-
+    /*Recieve commands in loop and respond*/
     while(1){
         numbytes = recv(newfd, buf, MAXBUFLEN-1, 0);
 
@@ -237,6 +312,7 @@ int main(int argc, char *argv[]) {
             close(sockfd);
             exit(0);
         }
+        buf[strcspn(buf, "\r\n")] = 0;    /*Remove \n from end*/
         buf[numbytes] = '\0';
         printf("recieved: %s\n", buf);
         if(strcmp(buf, "getall") == 0){
@@ -245,30 +321,27 @@ int main(int argc, char *argv[]) {
                 perror("send");
             }
             else{
+                numbytes = recv(newfd, buf, MAXBUFLEN-1, 0);
+
+                if(numbytes == -1) {
+                    perror("recv");
+                    exit(1);
+                }
                 for(i = 0; i < 20; i++){
                     if(keys[i] != NULL){
-                        sendKeyValue(newfd, keys[i]);
+                        sendKeyValue(newfd, i);
                     }
                 }
             }
         }
         else{
             message = readCommand(buf);
-
-            printf("Message:: %s\n", message);
             /*TODO:send message*/
+            if (send(newfd, message, strcspn(message, "\0"), 0) == -1){
+                perror("send");
+            }
         }
 
-        /*
-        memset(message, 0, (size_t)MAXBUFLEN);
-        free(message);
-        message = NULL;
-        message = (char *)malloc(sizeof(char*)*MAXBUFLEN);
-        if(!message){
-            perror("(char *)malloc message");
-        }
-        memset(message, 0, (size_t)MAXBUFLEN);
-        */
 
     }
     memset(message, 0, (size_t)MAXBUFLEN);

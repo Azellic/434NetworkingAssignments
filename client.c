@@ -28,7 +28,6 @@ int checkCommand(char * buffer){
     token = strtok(buffer, delim);
     if (token != NULL) {
         command = token;
-        /*TODO:Factor out key check if there is time*/
         if(strcmp(command, "add") == 0){
             token = strtok(NULL, delim);
             if(token != NULL){
@@ -120,7 +119,7 @@ int checkCommand(char * buffer){
 
 int main (int argc, char *argv[]) {
     char *buffer, *message;
-    int ret, rv, msglen, numbytes, run = 1;
+    int ret, rv, msglen, numbytes, sz, i, run = 1;
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
     char recvbuf[MAXBUFLEN];
@@ -194,6 +193,9 @@ int main (int argc, char *argv[]) {
         ret = read(0, buffer, MAXBUFLEN);
         if (ret > 0){ /* read success */
             msglen = strcspn(buffer, "\r\n");
+            if(msglen == 0){
+                continue;   /*Ignore blank lines*/
+            }
             buffer[strcspn(buffer, "\r\n")] = 0;    /*Remove \n from end*/
             /* Was the quit command entered? */
             if (strcmp(buffer, "quit") == 0){
@@ -214,8 +216,29 @@ int main (int argc, char *argv[]) {
                 }
                 recvbuf[numbytes] = '\0';
                 printf("recieved: %s\n", recvbuf);
+                if (send(sockfd, "good", 4, 0) == -1)
+            		perror("send");
                 if(strcmp(recvbuf, "0") == 0){
                     printf("No key-value pairs\n");
+                }
+                else{
+                    sz = atoi(recvbuf);
+                    if(sz > 0 && sz <=20){
+                        printf("server: All Key-Value Pairs:\n");
+                        for(i = 0; i< sz; i++){
+                            numbytes = recv(sockfd, recvbuf, MAXBUFLEN-1, 0);
+
+                            if(numbytes == -1) {
+                                perror("recv");
+                                exit(1);
+                            }
+                            if (send(sockfd, "good", 4, 0) == -1)
+                        		perror("send");
+                            recvbuf[numbytes] = '\0';
+                            printf("%s\n", recvbuf);
+                        }
+                    }
+                    /*TODO loop recieve*/
                 }
 
             }
@@ -224,8 +247,16 @@ int main (int argc, char *argv[]) {
                 if(checkCommand(buffer) == 0){
                     if (send(sockfd, message, msglen, 0) == -1)
                 		perror("send");
-                }
 
+                    numbytes = recv(sockfd, recvbuf, MAXBUFLEN-1, 0);
+
+                    if(numbytes == -1) {
+                        perror("recv");
+                        exit(1);
+                    }
+                    recvbuf[numbytes] = '\0';
+                    printf("server: %s\n", recvbuf);
+                }
             }
         }
 
