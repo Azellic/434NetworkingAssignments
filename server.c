@@ -1,3 +1,9 @@
+/*
+* Alexa Armitage ama043 11158883
+* CMPT 434
+* Assignment 1 Part A.1
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

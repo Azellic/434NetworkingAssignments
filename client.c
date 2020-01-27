@@ -1,3 +1,9 @@
+/*
+* Alexa Armitage ama043 11158883
+* CMPT 434
+* Assignment 1 Part A.1
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +15,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define MAXBUFLEN 100 /* max number of bytes per message */
+#define MAXBUFLEN 101 /* max number of bytes per message */
 #define MAXREMLEN 83 /* max size for key + value + space*/
 
 static const int portLowLimit = 30000; /*Minimum port specified by assignment*/
@@ -122,7 +128,21 @@ int main (int argc, char *argv[]) {
     int ret, rv, msglen, numbytes, sz, i, run = 1;
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
-    char recvbuf[MAXBUFLEN];
+    char recvbuf[2*MAXBUFLEN];
+
+
+    buffer = (char *)malloc(sizeof(char*)*MAXBUFLEN);
+    if(!buffer){
+        perror("malloc buffer");
+    }
+    memset(buffer, 0, sizeof(MAXBUFLEN));
+
+    message = (char *)malloc(sizeof(char*)*MAXBUFLEN);
+    if(!message){
+        perror("malloc message");
+    }
+    memset(message, 0, sizeof(MAXBUFLEN));
+
 
     /*Perform argument checks*/
     if (argc != 3){
@@ -169,24 +189,6 @@ int main (int argc, char *argv[]) {
 	}
 
     freeaddrinfo(servinfo);
-/*
-	if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
-	    perror("recv");
-	    exit(1);
-	}
-*/
-
-    buffer = (char *)malloc(sizeof(char*)*MAXBUFLEN);
-    if(!buffer){
-        perror("malloc buffer");
-    }
-    memset(buffer, 0, sizeof(MAXBUFLEN));
-
-    message = (char *)malloc(sizeof(char*)*MAXBUFLEN);
-    if(!message){
-        perror("malloc message");
-    }
-    memset(message, 0, sizeof(MAXBUFLEN));
 
     while(run){
         /* read a line */
@@ -226,7 +228,7 @@ int main (int argc, char *argv[]) {
                     if(sz > 0 && sz <=20){
                         printf("server: All Key-Value Pairs:\n");
                         for(i = 0; i< sz; i++){
-                            numbytes = recv(sockfd, recvbuf, MAXBUFLEN-1, 0);
+                            numbytes = recv(sockfd, recvbuf, (2*MAXBUFLEN)-1, 0);
 
                             if(numbytes == -1) {
                                 perror("recv");
@@ -248,7 +250,7 @@ int main (int argc, char *argv[]) {
                     if (send(sockfd, message, msglen, 0) == -1)
                 		perror("send");
 
-                    numbytes = recv(sockfd, recvbuf, MAXBUFLEN-1, 0);
+                    numbytes = recv(sockfd, recvbuf, (2*MAXBUFLEN)-1, 0);
 
                     if(numbytes == -1) {
                         perror("recv");
@@ -260,7 +262,7 @@ int main (int argc, char *argv[]) {
             }
         }
 
-        /* reset read buffer variables */
+        /* reset read buffer variable */
         memset(buffer, 0, (size_t)MAXBUFLEN);
         free(buffer);
         buffer = NULL;
@@ -270,7 +272,7 @@ int main (int argc, char *argv[]) {
         }
         memset(buffer, 0, (size_t)MAXBUFLEN);
 
-        /* reset read buffer variables */
+        /* reset message variable */
         memset(message, 0, (size_t)MAXBUFLEN);
         free(message);
         message = NULL;
