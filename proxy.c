@@ -168,6 +168,8 @@ int main(int argc, char *argv[]) {
         if(numbytes == 0){
             printf("Client has disconnected\n");
             close(clntfd);
+            close(servfd);
+            close(sockfd);
             exit(0);
         }
         rbuf[numbytes] = '\0';

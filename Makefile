@@ -7,7 +7,7 @@ CC = gcc
 CFLAGS = -g
 CPPFLAGS = -std=gnu90 -Wall -pedantic
 
-all: server client proxy
+all: server client proxy UDPproxy UDPserver
 
 server: server.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o server server.o
@@ -27,5 +27,17 @@ proxy: proxy.o
 proxy.o: proxy.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o proxy.o proxy.c
 
+UDPserver: UDPserver.o
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o UDPserver UDPserver.o
+
+UDPserver.o: UDPserver.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o UDPserver.o UDPserver.c
+
+UDPproxy: UDPproxy.o
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o UDPproxy UDPproxy.o
+
+UDPproxy.o: UDPproxy.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o UDPproxy.o UDPproxy.c
+
 clean:
-	rm -rf *.o server client proxy
+	rm -rf *.o server client proxy UDPproxy UDPserver

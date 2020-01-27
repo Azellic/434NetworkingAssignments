@@ -289,5 +289,7 @@ int main (int argc, char *argv[]) {
     memset(message, 0, (size_t)MAXBUFLEN);
     free(message);
 
+    close(sockfd);
+
     return 0;
 }
