@@ -1,7 +1,7 @@
 /*
 * Alexa Armitage ama043 11158883
 * CMPT 434
-* Assignment 1 Part A.1
+* Assignment 1 Part A.3
 */
 
 #include <stdio.h>
@@ -16,13 +16,15 @@
 #include <arpa/inet.h>
 
 #define MAXBUFLEN 101 /* max number of bytes per message */
-#define PORT "32345" /* port clients will connect to */
+#define PORT "32346" /* port clients will connect to */
 #define BACKLOG 5
 
 const char delim[2] = " ";
 char *keys[20];
 char *values[20];
 int kvSize = 0;
+struct sockaddr_storage their_addr;
+socklen_t addr_len;
 
 
 
@@ -114,9 +116,10 @@ char* addCommand(char *key, char *val){
 
 
 
-void sendKeyValue(int sockfd, int index){
+void sendKeyValue(int sockfd, int index, struct addrinfo *p){
     char *msg;
     char buf[MAXBUFLEN];
+    int nb;
 
     msg = (char *)malloc(sizeof(char*)*MAXBUFLEN);
     if(!msg){
@@ -126,13 +129,18 @@ void sendKeyValue(int sockfd, int index){
     /*TODO compose message*/
     sprintf(msg, "%s - %s", keys[index], values[index]);
 
-    if (send(sockfd, msg, strcspn(msg, "\0"), 0) == -1)
-        perror("send");
+    if (sendto(sockfd, msg, strcspn(msg, "\0"), 0,
+        (struct sockaddr *)&their_addr, addr_len)  == -1){
+        perror("sendto");
+    }
 
-    recv(sockfd, buf, MAXBUFLEN-1, 0);
 
-
-
+    /*Wait for some response to properly page delivery*/
+    nb = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
+        (struct sockaddr *)&their_addr, &addr_len);
+    if(nb == -1) {
+        perror("recvfrom");
+    }
 
 
     memset(msg, 0, (size_t)MAXBUFLEN);
@@ -244,73 +252,57 @@ char* readCommand(char buffer[100]){
 
 
 
-
-
-
-
 int main(int argc, char *argv[]) {
     struct addrinfo hints, *servinfo, *p;
-    int rv, yes=1, numbytes, i;
-    int sockfd, newfd;
+    int rv, numbytes, i;
+    int sockfd;
     char buf[MAXBUFLEN];
-    struct sockaddr_storage their_addr;
-    socklen_t sin_size;
     char *message, sz[3];
 
     memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	if((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		return 1;
 	}
 
-    for(p = servinfo; p != NULL; p = p->ai_next) {
+	for(p = servinfo; p != NULL; p = p->ai_next) {
 		if ((sockfd = socket(p->ai_family, p->ai_socktype,
 				p->ai_protocol)) == -1) {
-			perror("server: socket");
+			perror("UPDserver: socket");
 			continue;
 		}
 
-		if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
-				sizeof(int)) == -1) {
-			perror("setsockopt");
-			exit(1);
-		}
-
-		if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+		if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
 			close(sockfd);
-			perror("server: bind");
+			perror("UPDserver: bind");
 			continue;
 		}
+
 		break;
 	}
 
+
+    if (p == NULL) {
+		fprintf(stderr, "UPDserver: failed to bind socket\n");
+		return 2;
+	}
+
     freeaddrinfo(servinfo);
+    addr_len = sizeof their_addr;
 
-    if(p == NULL)  {
-		fprintf(stderr, "server: failed to bind\n");
-		exit(1);
-	}
 
-    if(listen(sockfd, BACKLOG) == -1) {
-		perror("listen");
-		exit(1);
-	}
-    sin_size = sizeof their_addr;
-    newfd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
-	if (newfd == -1) {
-		perror("accept");
-	}
 
     /*Recieve commands in loop and respond*/
     while(1){
-        numbytes = recv(newfd, buf, MAXBUFLEN-1, 0);
+        numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
+            (struct sockaddr *)&their_addr, &addr_len);
 
         if(numbytes == -1) {
-            perror("recv");
+            perror("recvfrom");
             exit(1);
         }
         if(numbytes == 0){
@@ -318,33 +310,37 @@ int main(int argc, char *argv[]) {
             close(sockfd);
             exit(0);
         }
+        
         buf[strcspn(buf, "\r\n")] = 0;    /*Remove \n from end*/
         buf[numbytes] = '\0';
         printf("recieved: %s\n", buf);
         if(strcmp(buf, "getall") == 0){
             sprintf(sz, "%d", kvSize);
-            if (send(newfd, sz, strlen(sz), 0) == -1){
-                perror("send");
+            if (sendto(sockfd, sz, strlen(sz), 0,
+                (struct sockaddr *)&their_addr, addr_len) == -1){
+                perror("sendto");
             }
             else{
-                numbytes = recv(newfd, buf, MAXBUFLEN-1, 0);
+                numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
+                    (struct sockaddr *)&their_addr, &addr_len);
 
                 if(numbytes == -1) {
-                    perror("recv");
+                    perror("recvfrom");
                     exit(1);
                 }
                 for(i = 0; i < 20; i++){
                     if(keys[i] != NULL){
-                        sendKeyValue(newfd, i);
+                        sendKeyValue(sockfd, i, p);
                     }
                 }
             }
         }
         else{
             message = readCommand(buf);
-            /*TODO:send message*/
-            if (send(newfd, message, strcspn(message, "\0"), 0) == -1){
-                perror("send");
+            if (sendto(sockfd, message, strcspn(message, "\0"), 0,
+                (struct sockaddr *)&their_addr, addr_len)== -1){
+
+                perror("sendto");
             }
         }
 

@@ -1,0 +1,64 @@
+/*
+* Alexa Armitage ama043 11158883
+* CMPT 434
+* Assignment 1 Part A
+*/
+
+A1
+-Decided that the server would quit when the client did, since it can only
+connect to a single client at a time anyways. This was just personal preference,
+but also improved efficiency when testing
+
+-Client will recognize five commands: add key value, getvalue key, getall,
+remove key, quit. Anything else will not be sent, and a message will display
+that the command is not recognized. The server will also perform checks of
+messages received, just incase the client connecting isn't the correct one, or
+doesn't have the same message restrictions.
+
+-The getall command will pass a series of messages between the client and
+server, starting with the number of pairs sent by the server, then a response
+from the client. The server and client will then repeat the pattern for the
+rest of the key-value Pairs
+
+-For simplicity's sake, the keys and values are stored in two char* arrays.
+The index is the same for each key and value of a pair.
+
+-I have tested this with 20 k-v pairs, to make sure it can recognize when the
+lists are full. I have not tested with copy and pasting a group of commands.
+Each command should be entered individually.
+
+-Both the client and the server perform the same check on input, to prevent
+sending more messages than necessary on the client side, and to prevent messages
+that disrupt the server on the server side.
+
+
+
+
+A2
+-The proxy connects to the server before waiting for connections from a client
+
+-Like the server, the proxy quits when the client does
+
+-For easy debugging purposes, the proxy prints all messages it receives, with
+the directions it is going.
+
+-The proxy server performs no checks on what messages it is sent. It is able to
+send messages back to the client at 2*MAXBUFLEN size, to accommodate a message
+that is nothing but 'c', 'm', 'p', 't'. Message legibility is checked either
+at the server or client, since the proxy does not execute commands.
+
+
+A3
+-Unlike the other two parts of this assignment, the UDPserver does not quit
+when the client does. The proxy will still close as it is still connected to
+the client by TCP.
+
+-All message checking is the same as previous server/proxy/client configurations
+
+-Both UDPproxy and UDPserver are almost identical to proxy and server, except
+in how the connection is established between the two, and send/recv had become
+sendto/recvto
+
+-Since the server does not receive port numbers, it will reply to the address
+of whoever has send the last message. This is intentional, but could be wonky
+with multiple clients/proxies
