@@ -16,7 +16,7 @@
 #include <arpa/inet.h>
 
 #define MAXBUFLEN 101 /* max number of bytes per message */
-#define PORT "34566" /* port clients will connect to */
+#define PORT "35790" /* port clients will connect to */
 #define BACKLOG 5
 
 static const int portLowLimit = 30000; /*Minimum port specified by assignment*/

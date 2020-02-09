@@ -7,37 +7,25 @@ CC = gcc
 CFLAGS = -g
 CPPFLAGS = -std=gnu90 -Wall -pedantic
 
-all: server client proxy UDPproxy UDPserver
+all: receiver sender
 
-server: server.o
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o server server.o
+receiver: receiver.o
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o receiver receiver.o
 
-server.o: server.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o server.o server.c
+receiver.o: receiver.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o receiver.o receiver.c
 
-client: client.o
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o client client.o
+sender: sender.o
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o sender sender.o
 
-client.o: client.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o client.o client.c
+sender.o: sender.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o sender.o sender.c
 
-proxy: proxy.o
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o proxy proxy.o
+forwarder: forwarder.o
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o forwarder forwarder.o
 
-proxy.o: proxy.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o proxy.o proxy.c
-
-UDPserver: UDPserver.o
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o UDPserver UDPserver.o
-
-UDPserver.o: UDPserver.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o UDPserver.o UDPserver.c
-
-UDPproxy: UDPproxy.o
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o UDPproxy UDPproxy.o
-
-UDPproxy.o: UDPproxy.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o UDPproxy.o UDPproxy.c
+forwarder.o: forwarder.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o forwarder.o forwarder.c
 
 clean:
-	rm -rf *.o server client proxy UDPproxy UDPserver
+	rm -rf *.o receiver sender forwarder
