@@ -15,6 +15,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/poll.h>
+#include <time.h>
 
 #define MAXBUFLEN 100 /* max number of bytes per message */
 #define HEADERSZ 11 /* max number of characters in header plus 1*/
@@ -32,39 +33,86 @@ char theirPortSt[6];
 int sndWindowSz, msgQueSz, numMsgs = 0;
 int usrTimeout;
 socklen_t addr_len;
-int seqNum = 0, oldestSeq = 0;
+int seqNum = 0, oldestUnackedSeq = 0, newestSentSeq = 0;
 struct pollfd pfd[2];
 char **messageQue;
 struct addrinfo *p;
+time_t lastSentTime, curTime;
+int sockfd;
 
 /*Acknowledges acks by removing older messages from queue ********************/
-void freeAckedMessages(int ack){
-    int i;
+int freeAckedMessages(int ack){
+    int i, count = 0;
 
-    if(ack > oldestSeq){
-        for(i = oldestSeq; i < ack; i ++){
+    if(ack > oldestUnackedSeq){
+        for(i = oldestUnackedSeq; i < ack; i ++){
+            memset(messageQue[i], 0, (size_t)MAXBUFLEN);
             free(messageQue[i]);
             messageQue[i] = NULL;
-            numMsgs --;
+            numMsgs--;
+            count++;
         }
     }
     free(messageQue[ack]);
     messageQue[ack] = NULL;
     numMsgs--;
-    oldestSeq = ack + 1;
-    if (oldestSeq == msgQueSz) {oldestSeq = 0;}
+    count++;
+    oldestUnackedSeq = ack + 1;
+    if (oldestUnackedSeq == msgQueSz) {oldestUnackedSeq = 0;}
+    return count;
+}
+
+void sendMessage(int seq){
+    int msglen;
+    if(messageQue[seq] == NULL){return;}
+    msglen = strcspn(messageQue[seq], "\0");
+    if (sendto(sockfd, messageQue[seq], msglen, 0, p->ai_addr,
+        p->ai_addrlen)== -1){
+
+        perror("sendto");
+    }
+    newestSentSeq = seq;
+    time(&lastSentTime);
 }
 
 void resendUnackedMessages(){
+    int i, j;
 
+    for(i = 0; i < sndWindowSz; i++){
+        j = oldestUnackedSeq + i;
+        if(j >= msgQueSz){
+            j = j - msgQueSz;
+        }
+        if(messageQue[j] != NULL){
+            sendMessage(j);
+        }
+        else{
+            break;  /*Have reached an unused part of messageQue, stop*/
+        }
+    }
 }
 
+void sendQueuedMessages(int num){
+    int i;
 
-void cleanup(char *buffer){
+    for(i = 0; i < num; i++){
+        if(messageQue[newestSentSeq+1] != NULL){
+            sendMessage(newestSentSeq+1);
+        }
+        else{
+            break;
+        }
+    }
+}
+
+void cleanup(){
     int i;
     for(i = 0; i < msgQueSz; i++){
-        if(messageQue[i] != NULL)
+        if(messageQue[i] != NULL){
+            memset(messageQue[i], 0, (size_t)MAXBUFLEN);
             free(messageQue[i]);
+            messageQue[i] = NULL;
+        }
     }
     numMsgs = 0;
     free(messageQue);
@@ -73,7 +121,7 @@ void cleanup(char *buffer){
 int main (int argc, char *argv[]) {
     char *buffer, *message, seq[11], ack[20];
     int ret, rv, msglen, run = 1, numbytes, ackVal;
-    int sockfd;
+    int wait, numFreed;
     struct addrinfo hints, *servinfo;
     struct sockaddr_storage their_addr;
 
@@ -93,8 +141,13 @@ int main (int argc, char *argv[]) {
 
     sndWindowSz = atoi(argv[3]);
     if (sndWindowSz < 0){
-        printf("sndWindowSz cannot be negative.\n");
+        printf("sendWindow cannot be negative.\n");
         exit(1);
+    }
+    else if(sndWindowSz > MAXSZ / 2){
+        /*Since array of messages is 2*sndWindowSz, this is the largest
+        user deined window size possible*/
+        printf("Send window too large\n");
     }
     msgQueSz = 2 * sndWindowSz + 1;
 
@@ -155,17 +208,28 @@ int main (int argc, char *argv[]) {
 
 
 
-    /*Main loop *************************************************/
-    printf("Enter messages to send:\n");
+    /*Main loop ***************************************************************/
+    printf("Enter messages to send (100 character limit):\n");
     while(run){
-        /*Set up poll variables ***************************************/
+        /*Set up poll variables */
         pfd[0].fd = 0;
         pfd[0].events = POLLIN;
 
         pfd[1].fd = sockfd;
         pfd[1].events = POLLIN;
-        /* poll stdin and port */
-        poll(pfd, 2, usrTimeout*MILSECINSEC);/*TODO*/
+        /* poll stdin and socket */
+
+        /*Adjust poll timeout*/
+        if(numMsgs == 0){
+            wait = -1;
+        }
+        else{
+            time(&curTime);
+            wait = (usrTimeout-difftime(lastSentTime, curTime))*MILSECINSEC;
+        }
+
+        poll(pfd, 2, wait);
+
         if(pfd[0].revents & POLLIN){
             ret = read(0, buffer, MAXBUFLEN);
             if (ret > 0){
@@ -173,50 +237,54 @@ int main (int argc, char *argv[]) {
                 if(msglen == 0){
                     continue;   /*Ignore blank lines*/
                 }
-                buffer[strcspn(buffer, "\r\n")] = 0;   /*Remove \n\r from end*/
+                buffer[msglen] = 0;   /*Remove \n\r from end*/
                 /* Was the quit command entered? */
                 if (strcmp(buffer, "quit") == 0){
                     run = 0;
                 }
+                else if(numMsgs == msgQueSz){
+                    printf("Message queue full\n");
+                }
                 else{
+                    /*Build the message*/
                     sprintf(seq, "%d:", seqNum);
-                    msglen = msglen + sizeof seqNum + 1;
                     strcpy(message, seq);
                     strcat(message, buffer);
+                    /*Add message to queue*/
                     messageQue[seqNum] = message;
                     numMsgs++;
+                    /*If sending window still has space, send now*/
+                    if(numMsgs <= sndWindowSz){
+                        sendMessage(seqNum);
+                    }
+                    else{}
+
+                    seqNum++;
                     if(seqNum >= msgQueSz){
                         seqNum = 0;
                     }
-                    else{
-                        seqNum++;
-                    }
-
-                    if (sendto(sockfd, message, msglen, 0, p->ai_addr,
-                        p->ai_addrlen)== -1){
-
-                        perror("sendto");
-                    }
-
                 }
             }
         }
-        if(pfd[1].revents & POLLIN){
+        else if(pfd[1].revents & POLLIN){
             /*Receive from server*/
             numbytes = recvfrom(sockfd, ack, 19, 0,
                 (struct sockaddr *)&their_addr, &addr_len);
 
             if(numbytes == -1) {
                 perror("recv");
+                cleanup();
                 exit(1);
             }
             ack[numbytes] = '\0';
             ackVal = atoi(ack);
-            /*printf("received ack %d for: %s\n", ackVal, messageQue[ackVal]);*/
-            freeAckedMessages(ackVal);
+            /*printf("Ack received: %d\n", ackVal);*/
+            numFreed = freeAckedMessages(ackVal);
+            sendQueuedMessages(numFreed);
         }
-
-        resendUnackedMessages();
+        else{
+            resendUnackedMessages();
+        }
 
         /* reset read buffer variable */
         memset(buffer, 0, (size_t)MAXBUFLEN);
@@ -242,6 +310,7 @@ int main (int argc, char *argv[]) {
     free(buffer);
     memset(message, 0, (size_t)MAXBUFLEN);
     free(message);
+    cleanup();
 
     close(sockfd);
 

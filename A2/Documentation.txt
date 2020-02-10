@@ -1,0 +1,29 @@
+/*
+* Alexa Armitage ama043 11158883
+* CMPT 434
+* Assignment 2 Part A
+*/
+
+Design decisions:
+
+Part A1:
+1) Acks are the last received in order sequence number. This makes removing old
+messages from the sender queue slightly easier, and is a matter of personal
+preference, but sender and receiver must agree on this to function.
+
+2) The receiver will not print new packets received until a user has answered
+the Y/N question. In a system with real packet corruption this would be not be
+the case.
+
+3) In general, acks sent by the receiver are non cumulative. The sender can
+receive cumulative acks, but the only time this would be relevant would be if a
+previous ack had failed the check to be sent.
+
+4)As with Assignment 1, typing "quit" will cause the sender to exit. This does
+not effect the receiver, however. 
+
+5)The message queue is 2 * the sending window size. This prevents the window
+from wrapping around. If the user enters too many messages, a warning will be
+printed on the screen.
+
+Part A2:

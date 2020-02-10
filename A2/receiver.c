@@ -19,8 +19,6 @@
 #define MAXBUFLEN 112 /* max number of bytes per message */
 #define BACKLOG 5
 #define MAXSZ 2147483647 /*Maximum int, also max sequence number*/
-#define MILSECINSEC 1000
-#define TIMEOUT 5
 
 static const int portLowLimit = 30000; /*Minimum port specified by assignment*/
 static const int portUprLimit = 40000; /*Maximum port specified by assignment*/
@@ -32,41 +30,72 @@ int myPort, failRate;
 char myPortSt[6];
 int currSeqNum = -1;    /*Init to -1 to be less than first transmission*/
 struct pollfd pfd[2];
+int sockfd;
 
+void sendAck(){
+    int failRoll;
+    char rtrn[15];
+
+    failRoll = (rand() % 100) + 1;
+    if(failRoll >= failRate){
+        sprintf(rtrn, "%d", currSeqNum);
+        if (sendto(sockfd, rtrn, strlen(rtrn), 0,
+            (struct sockaddr *)&their_addr, addr_len)== -1){
+            perror("sendto");
+        }
+    }
+}
+
+void ackUncorruptedMessage(){
+    char conf[MAXBUFLEN];
+    int ret;
+
+    /*Read in Y/N to simulate possible corruption, and ack accordingly*/
+    ret = read(0, conf, MAXBUFLEN);
+    if (ret > 0){
+        fflush(0);
+        conf[1] = 0;
+        if(strcmp(conf, "Y") == 0){
+            currSeqNum++;
+            sendAck();
+        }
+    }
+}
 
 void respondToMsg(char *message){
     char *token, *msg;
-    int seqNum;
+    int rcvdSeqNum;
 
     token = strtok(message, delim);
     if( token != NULL){
-        seqNum = atoi(token);
-        if(seqNum == currSeqNum + 1){
-            currSeqNum++;
+        rcvdSeqNum = atoi(token);
+        if(rcvdSeqNum == currSeqNum + 1){
             token = strtok(NULL, delim);
             if(token != NULL){
                 msg = token;
                 printf("recieved: %s\n", msg);
                 printf("Was the message correct? [Y/N]\n");
+                ackUncorruptedMessage();
             }
             else{
                 printf("Received an improperly formatted message\n");
             }
         }
-        else if(seqNum == currSeqNum){
-            if(token != NULL){
-                msg = token;
-                printf("Retransmission: %d %s\n", seqNum, msg);
-            }
-            else{
-                printf("Received an improperly formatted message\n");
-            }
-        }
-        else if(seqNum > currSeqNum + 1 || seqNum < currSeqNum){
+        else if(rcvdSeqNum == currSeqNum){
             token = strtok(NULL, delim);
             if(token != NULL){
                 msg = token;
-                printf("Out of order: [%d] %s\n", seqNum, msg);
+                printf("Retransmission: %d %s\n", rcvdSeqNum, msg);
+            }
+            else{
+                printf("Received an improperly formatted message\n");
+            }
+        }
+        else if(rcvdSeqNum > currSeqNum + 1 || rcvdSeqNum < currSeqNum){
+            token = strtok(NULL, delim);
+            if(token != NULL){
+                msg = token;
+                printf("Out of order: [%d] %s\n", rcvdSeqNum, msg);
             }
             else{
                 printf("Received an improperly formatted message\n");
@@ -77,10 +106,8 @@ void respondToMsg(char *message){
 
 int main(int argc, char *argv[]) {
     struct addrinfo hints, *servinfo, *p;
-    int rv, numbytes, run = 1, ret;
-    int sockfd;
-    /*char buf[MAXBUFLEN];*/
-    char *message, conf[MAXBUFLEN], rtrn[15];
+    int rv, numbytes, run = 1;
+    char *message;
 
     /*Perform argument checks*/
     if (argc != 3){
@@ -147,48 +174,22 @@ int main(int argc, char *argv[]) {
     /*Main loop ***************************************************************/
     while(run){
         /*Set up poll variables ***********************************************/
-        pfd[0].fd = 0;
-        pfd[0].events = POLLIN;
-
-        pfd[1].fd = sockfd;
-        pfd[1].events = POLLIN;
 
 
-        poll(pfd, 2, TIMEOUT*MILSECINSEC);  /* poll stdin and port */
+        /*Message recieved over port **************************************/
+        numbytes = recvfrom(sockfd, message, MAXBUFLEN-1 , 0,
+            (struct sockaddr *)&their_addr, &addr_len);
 
-        if(pfd[0].revents & POLLIN){
-            /*Read in Y/N, and ack accordingly*/
-            ret = read(0, conf, MAXBUFLEN);
-            if (ret > 0){
-                fflush(0);
-                conf[1] = 0;
-                sprintf(rtrn, "%d", currSeqNum);
-                if(strcmp(conf, "Y") == 0){
-                    if (sendto(sockfd, rtrn, strlen(rtrn), 0,
-                        (struct sockaddr *)&their_addr, addr_len)== -1){
-                        perror("sendto");
-                    }
-                }
-            }
-
-
+        if(numbytes == -1) {
+            perror("recvfrom");
+            close(sockfd);
+            memset(message, 0, (size_t)MAXBUFLEN);
+            free(message);
+            exit(1);
         }
+        message[numbytes] = '\0';
+        respondToMsg(message);
 
-        if (pfd[1].revents & POLLIN){
-            /*Message recieved over port **************************************/
-            numbytes = recvfrom(sockfd, message, MAXBUFLEN-1 , 0,
-                (struct sockaddr *)&their_addr, &addr_len);
-
-            if(numbytes == -1) {
-                perror("recvfrom");
-                close(sockfd);
-                memset(message, 0, (size_t)MAXBUFLEN);
-                free(message);
-                exit(1);
-            }
-            message[numbytes] = '\0';
-            respondToMsg(message);
-        }
 
         /* reset message variable */
         memset(message, 0, (size_t)MAXBUFLEN);
