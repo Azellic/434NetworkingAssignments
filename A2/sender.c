@@ -278,7 +278,7 @@ int main (int argc, char *argv[]) {
             }
             ack[numbytes] = '\0';
             ackVal = atoi(ack);
-            /*printf("Ack received: %d\n", ackVal);*/
+        /*printf("Ack received: %d\n", ackVal*/);
             numFreed = freeAckedMessages(ackVal);
             sendQueuedMessages(numFreed);
         }

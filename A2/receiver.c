@@ -37,6 +37,7 @@ void sendAck(){
     char rtrn[15];
 
     failRoll = (rand() % 100) + 1;
+    printf("FailRoll: %d\n", failRoll);
     if(failRoll >= failRate){
         sprintf(rtrn, "%d", currSeqNum);
         if (sendto(sockfd, rtrn, strlen(rtrn), 0,
@@ -86,6 +87,7 @@ void respondToMsg(char *message){
             if(token != NULL){
                 msg = token;
                 printf("Retransmission: %d %s\n", rcvdSeqNum, msg);
+                sendAck();
             }
             else{
                 printf("Received an improperly formatted message\n");
