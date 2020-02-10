@@ -15,9 +15,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/poll.h>
+#include <time.h>
 
 #define MAXBUFLEN 112 /* max number of bytes per message */
-#define BACKLOG 5
 #define MAXSZ 2147483647 /*Maximum int, also max sequence number*/
 
 static const int portLowLimit = 30000; /*Minimum port specified by assignment*/
@@ -37,7 +37,7 @@ void sendAck(){
     char rtrn[15];
 
     failRoll = (rand() % 100) + 1;
-    printf("FailRoll: %d\n", failRoll);
+    /*printf("FailRoll: %d\n", failRoll);*/
     if(failRoll >= failRate){
         sprintf(rtrn, "%d", currSeqNum);
         if (sendto(sockfd, rtrn, strlen(rtrn), 0,
@@ -74,7 +74,7 @@ void respondToMsg(char *message){
             token = strtok(NULL, delim);
             if(token != NULL){
                 msg = token;
-                printf("recieved: %s\n", msg);
+                printf("Recieved: %s\n", msg);
                 printf("Was the message correct? [Y/N]\n");
                 ackUncorruptedMessage();
             }
@@ -110,6 +110,8 @@ int main(int argc, char *argv[]) {
     struct addrinfo hints, *servinfo, *p;
     int rv, numbytes, run = 1;
     char *message;
+
+    srand(time(0));
 
     /*Perform argument checks*/
     if (argc != 3){
@@ -175,8 +177,6 @@ int main(int argc, char *argv[]) {
 
     /*Main loop ***************************************************************/
     while(run){
-        /*Set up poll variables ***********************************************/
-
 
         /*Message recieved over port **************************************/
         numbytes = recvfrom(sockfd, message, MAXBUFLEN-1 , 0,

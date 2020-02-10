@@ -18,3 +18,13 @@ On the sender side:
 -Choose a sending window size and timeout (in seconds), replace those fields
 -Example:
     ./sender 128.233.236.136 35790 10 7
+
+Part A2
+Make sure to run in the following order: receiver -> forwarder -> sender
+Use sender/receiver as described above
+Here is how the forwarder takes arguments:
+./forwarder [senderPort] [receiverIP] [receiverPort] [sendWindow] [timeout]
+Here are examples:
+./receiver 35789 70
+./forwarder 35790 128.233.236.136 35789 10 5
+./sender 128.233.236.11 35789 10 7

@@ -107,6 +107,7 @@ void sendQueuedMessages(int num){
 
 void cleanup(){
     int i;
+    printf("Cleaning up (this can take a few seconds)\n");
     for(i = 0; i < msgQueSz; i++){
         if(messageQue[i] != NULL){
             memset(messageQue[i], 0, (size_t)MAXBUFLEN);
@@ -114,6 +115,7 @@ void cleanup(){
             messageQue[i] = NULL;
         }
     }
+
     numMsgs = 0;
     free(messageQue);
 }
@@ -144,12 +146,6 @@ int main (int argc, char *argv[]) {
         printf("sendWindow cannot be negative.\n");
         exit(1);
     }
-    else if(sndWindowSz > MAXSZ / 2){
-        /*Since array of messages is 2*sndWindowSz, this is the largest
-        user deined window size possible*/
-        printf("Send window too large\n");
-    }
-    msgQueSz = 2 * sndWindowSz + 1;
 
     usrTimeout = atoi(argv[4]);
     if (usrTimeout < 0){
@@ -159,6 +155,9 @@ int main (int argc, char *argv[]) {
 
     printf("Arguments: ./sender %s %s %d %d\n",  ipAddress, theirPortSt,
         sndWindowSz, usrTimeout);
+
+    /*Change this to change maximum number of messages ************************/
+    msgQueSz = MAXSZ;
 
     /*Memory Allocate for message buffers *************************/
     buffer = (char *)malloc(sizeof(char*)*MAXBUFLEN);
@@ -203,7 +202,6 @@ int main (int argc, char *argv[]) {
 	}
     addr_len = sizeof their_addr;
     freeaddrinfo(servinfo);
-
 
 
 
@@ -257,7 +255,6 @@ int main (int argc, char *argv[]) {
                     if(numMsgs <= sndWindowSz){
                         sendMessage(seqNum);
                     }
-                    else{}
 
                     seqNum++;
                     if(seqNum >= msgQueSz){
@@ -278,7 +275,6 @@ int main (int argc, char *argv[]) {
             }
             ack[numbytes] = '\0';
             ackVal = atoi(ack);
-        /*printf("Ack received: %d\n", ackVal*/);
             numFreed = freeAckedMessages(ackVal);
             sendQueuedMessages(numFreed);
         }

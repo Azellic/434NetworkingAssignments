@@ -7,7 +7,7 @@ CC = gcc
 CFLAGS = -g
 CPPFLAGS = -std=gnu90 -Wall -pedantic
 
-all: receiver sender
+all: receiver sender forwarder
 
 receiver: receiver.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o receiver receiver.o

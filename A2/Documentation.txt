@@ -20,10 +20,15 @@ receive cumulative acks, but the only time this would be relevant would be if a
 previous ack had failed the check to be sent.
 
 4)As with Assignment 1, typing "quit" will cause the sender to exit. This does
-not effect the receiver, however. 
+not effect the receiver, however.
 
 5)The message queue is 2 * the sending window size. This prevents the window
 from wrapping around. If the user enters too many messages, a warning will be
 printed on the screen.
 
 Part A2:
+1)Mostly copied code from Part 1
+
+2)No fail rate asked for, so the forwarder does not intentionally fail to ack
+
+3)Like the receiver, will wait for a Y/N before printing any new messages
