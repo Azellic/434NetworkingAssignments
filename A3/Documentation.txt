@@ -1,0 +1,32 @@
+/*
+* Alexa Armitage ama043 11158883
+* CMPT 434
+* Assignment 3 Part A
+*/
+
+-Routers that are not currently connected are not printed to stdout, just to
+keep things clean.
+
+-The distance between two routers caps at 99, because the message between two
+routers can only hold two digits of distance per router
+
+-Messages between routers contain information about all possible routers, even
+if they have never been connected, so that lost connections can be broadcasted
+
+-For the two seconds between printing the table, messages are received
+regarding distance. The contents of these messages are stored in routerMessages
+until the two seconds are up, and then the actual routerTable is updated before
+being printed. routerMessages is then reset. This is to allow for multiple
+messages to be compared at once.
+
+-The names, distance, and next hop are stored in routerTable as integers. This
+makes indexing, and cross-referencing easy.
+
+-Nothing was implemented to prevent common dead connections problems, e.g.
+count to infinity. This was intentional, since it wasn't asked for.
+
+-Due to the way I implemented things, when a router fails it may appear in the
+router table of its neighbour for a cycle, disappear, and then start counting
+to infinity. Since counting to infinity (or 99, in this case) is already
+improper, I did not hunt down the cause of this strange behavior, but I did
+notice it.

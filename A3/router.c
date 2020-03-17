@@ -16,30 +16,39 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <poll.h>
+#include <time.h>
 
-#define MAXBUFLEN 104   //3 * 26 possible routers + 25 separators + tombstone
+#define MAXBUFLEN 129   //4 * 26 possible routers + 25 separators + tombstone
 #define NUMROUTERS 26   //25 connections + listener
 #define MILSECINSEC 1000
+#define TRUE 1
+#define FALSE 0
+#define OFFSET 65
 
 static const int portLowLimit = 30000; /*Minimum port specified by assignment*/
 static const int portUprLimit = 40000; /*Maximum port specified by assignment*/
+const char delim = ',';
+const char separator[2] = ":";
+const int offset = 'A';
 
-int twoRouters = 0;
+int twoRouters = FALSE, firstIsConnected = FALSE, secondIsConnected = FALSE;
 int myPort, firstOutPort, secondOutPort;
 char myPortStr[6], firstOutPortStr[6], secondOutPortStr[6];
-char *myName;
-int routerCount = 0;
-int routerTable[2][26] = {
+char *myName, firstOutName = '-', secondOutName = '-';
+char nameOfPollfd[NUMROUTERS];
+int routerTable[3][NUMROUTERS] = {
                              {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
                               'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
-                              'U', 'V', 'W', 'X', 'Y', 'Z',},
+                              'U', 'V', 'W', 'X', 'Y', 'Z'},
                              {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
                               -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-                              -1, -1, -1, -1, -1, -1}
+                              -1, -1, -1, -1, -1, -1},
+                             {'-', '-', '-', '-', '-', '-', '-', '-', '-', '-',
+                              '-', '-', '-', '-', '-', '-', '-', '-', '-', '-',
+                              '-', '-', '-', '-', '-', '-'}
                              };
-
-
-
+//routerMessages[sender name index][destination name index]
+int routerMessages[NUMROUTERS][NUMROUTERS]; //A=0, Z=25, stores dist from msgs
 
 
 /***************************************************************************
@@ -88,24 +97,55 @@ int getListenerSocket(void){
 }
 
 
-
-
-
-
-
-void setDistanceToRouter(char router, int distance){
-    for(int i = 0; i < 26; i++){
+/***************************************************************************
+* Sets the distance and next hop to whichever router matches first parameter
+****************************************************************************/
+void setDistanceAndNextHop(char router, int distance, char next){
+    for(int i = 0; i < NUMROUTERS; i++){
         if(routerTable[0][i] == router){
+            if(distance > 99)
+                distance = 99;
             routerTable[1][i] = distance;
+            routerTable[2][i] = next;
         }
     }
 }
 
 
 /***************************************************************************
+* Add a new file descriptor to pollfds
+****************************************************************************/
+void addToPollfds(struct pollfd *pollfds, int newfd, int *fdCount,
+    int *fdSize, char name){
+    // Check if there is room in the array
+    if (*fdCount == *fdSize) {
+        perror("pollfds: no space left.");
+        return;
+    }
+
+    nameOfPollfd[*fdCount] = name;
+    pollfds[*fdCount].fd = newfd;
+    pollfds[*fdCount].events = POLLIN; // Check ready-to-read
+    (*fdCount)++;
+}
+
+
+/***************************************************************************
+* Remove a file descriptor from pollfds, and its name from nameOfPollfd
+****************************************************************************/
+void deleteFromPollfds(struct pollfd *pollfds, int i, int *fdCount){
+    // Copy the fd from the end over the one to remove
+    pollfds[i] = pollfds[*fdCount-1];
+    nameOfPollfd[i] = nameOfPollfd[*fdCount-1];
+    (*fdCount)--;
+}
+
+
+/***************************************************************************
 * Attempt to connect with a different router on port number provided
 ****************************************************************************/
-int establishConnectionToRouter(char *port){
+int establishConnectionToRouter(char *port, struct pollfd *pfds, int *fdCount,
+    int *fdSize){
     int rv, numbytes;
     int sockfd;
     char namebuf[2];
@@ -131,7 +171,6 @@ int establishConnectionToRouter(char *port){
 			close(sockfd);
 			continue;
 		}
-        printf("Connection found\n");
 		break;
 	}
 
@@ -156,64 +195,156 @@ int establishConnectionToRouter(char *port){
     }
 
     namebuf[numbytes] = '\0';
-    setDistanceToRouter(namebuf[0], 1);
 
-
+    if(strcmp(port, firstOutPortStr)==0){
+        firstOutName = namebuf[0];
+    }
+    if(twoRouters && strcmp(port, secondOutPortStr)==0){
+        secondOutName = namebuf[0];
+    }
+    printf("Connection established: router %c\n", namebuf[0]);
+    //set distance to router on immediate outgoing connection = 1
+    setDistanceAndNextHop(namebuf[0], 1, namebuf[0]);
+    addToPollfds(pfds, sockfd, fdCount, fdSize, namebuf[0]);
     return sockfd;
 }
 
 
-
-
-
 /***************************************************************************
-* Add a new file descriptor to pollfds
+* Sets distance to router that has disconnected to -1, same for all routers
+* that used the disconnected router as next_hop
 ****************************************************************************/
-void addToPollfds(struct pollfd *pollfds, int newfd, int *fdCount, int *fdSize)
-{
-    // Check if there is room in the array
-    if (*fdCount == *fdSize) {
-        perror("pollfds: no space left.");
-        return;
+void deleteRouterFromTable(char name){
+    setDistanceAndNextHop(name, -1, '-');
+    for(int i = 0; i < NUMROUTERS; i++){
+        if(routerTable[2][i] == name){
+            setDistanceAndNextHop(routerTable[0][i], -1, '-');
+        }
     }
+}
 
-    pollfds[*fdCount].fd = newfd;
-    pollfds[*fdCount].events = POLLIN; // Check ready-to-read
 
-    (*fdCount)++;
+/***************************************************************************
+* Prints the contents of routerTable to stdout
+****************************************************************************/
+void printRouterTable(){
+    printf("***********Router Table:**************\n");
+    for(int i = 0; i < NUMROUTERS; i++){
+        if(routerTable[1][i] >= 0)
+            printf("Router %c: Dist=%d, Next Hop=%c\n",
+                routerTable[0][i], routerTable[1][i], routerTable[2][i]);
+    }
+}
+
+
+/***************************************************************************
+* Creates a message containing Dx(y) for all routers y
+****************************************************************************/
+void createMessage(char *buf){
+    char letter[3], num[4];
+    for(int i = 0; i < NUMROUTERS-1; i++){
+        sprintf(letter, "%c:", routerTable[0][i]);
+        strncat(buf, letter, 2);
+        sprintf(num, "%d:", routerTable[1][i]);
+        strncat(buf, num, 3);
+    }
+    strncat(buf, ((char*)&routerTable[0][NUMROUTERS-1]), 1);
+    sprintf(num, ":%d", routerTable[1][NUMROUTERS-1]);
+    strncat(buf, num, 3);
+    //strcat(buf, "\0");
+    //buf[MAXBUFLEN-1] = '\0';
 }
 
 /***************************************************************************
-* Remove an file descriptor from pollfds
+* Updates the table of distances recieved from other routers
 ****************************************************************************/
-void deleteFromPollfds(struct pollfd *pollfds, int i, int *fdCount){
-    // Copy the fd from the end over the one to remove
-    pollfds[i] = pollfds[*fdCount-1];
-    (*fdCount)--;
+void updateRouterMessagesTable(char senderName, char msg[MAXBUFLEN]){
+    char *token, *letter, *number;
+    int letIdx, dist;
+
+
+    token = strtok(msg, separator);
+    while(token != NULL){
+        letter = token;
+        if (letter == NULL){
+            printf("Malformed message");
+            return;
+        }
+        letIdx = letter[0] - OFFSET;
+        number = strtok(NULL, separator);
+        if(number == NULL){
+            printf("Malformed message");
+            return;
+        }
+        dist = atoi(number);
+        if(dist != -1) dist += 1; //To account for distance to sender
+        routerMessages[senderName-OFFSET][letIdx] = dist;
+
+        token = strtok(NULL, separator);
+
+    }
 }
 
+void updateRouterTable(){
+    int min;
+    char senderName, destName;
+
+    for(int dest = 0; dest < NUMROUTERS; dest++){
+        destName = dest + OFFSET;
+        min = 100;
+
+        for(int sender = 0; sender < NUMROUTERS; sender++){
+            if(routerMessages[sender][dest] > -1 &&
+                    routerMessages[sender][dest] < min &&
+                    sender != myName[0]-65){
+                min = routerMessages[sender][dest];
+                senderName = sender + OFFSET;
+            }
+
+        }
+        if(min == 100){
+            min = -1;
+            senderName = '-';
+        }
+
+
+        if(myName[0] != destName){
+            if(destName != firstOutName && destName != secondOutName)
+                setDistanceAndNextHop(destName, min , senderName);
+        }
+
+    }
+}
+
+void resetRouterMessagesTable(){
+    for(int i = 0; i < NUMROUTERS; i++){
+        for(int j = 0; j < NUMROUTERS; j ++){
+            routerMessages[i][j] = -1;
+        }
+    }
+}
 
 /***************************************************************************
 * Main method, runs a loop looking for inbound connections/messages
 ****************************************************************************/
 int main(int argc, char *argv[]) {
     int listenSock, firstOutSock, secondOutSock, newfd, destfd, senderfd;
-    char buf[MAXBUFLEN], namebuf[2];
-    int fdCount = 0, pollCount;
+    char buf[MAXBUFLEN], namebuf[2], *msg = "";
+    int fdCount = 0, pollCount, wait;
+    time_t curTime, lastPrintedTime;
     int fdSize = NUMROUTERS;
     int nbytes, numbytes;
     socklen_t addrlen;
     struct sockaddr_storage remoteaddr;
     struct pollfd *pollfds = malloc(sizeof *pollfds * fdSize);
 
+    /**********
+    * Read in arguments
+    ***********/
     if (argc < 4 || argc > 5){
         printf("Incorrect number of arguments.\n");
-        printf("Usage: ./router [name] [myPort] [theirPort] [optionalPort]\n");
+        printf("Usage: router [name] [myPort] [theirPort] [optionalPort]\n");
         exit(1);
-    }
-
-    if(argv == NULL){
-        printf("huh?\n");
     }
 
     myName = argv[1];
@@ -221,7 +352,8 @@ int main(int argc, char *argv[]) {
         printf("Invalid router name.\n");
         exit(1);
     }
-    setDistanceToRouter(myName[0], 0);
+    //Set distance to self = 0
+    setDistanceAndNextHop(myName[0], 0, myName[0]);
 
     myPort = atoi(argv[2]);
     if (myPort > portUprLimit || myPort < portLowLimit){
@@ -252,7 +384,11 @@ int main(int argc, char *argv[]) {
         printf("Arguments: %s %s %s\n", myName, myPortStr, firstOutPortStr);
     }
 
-    // Set up and get a listening socket
+    resetRouterMessagesTable();
+
+    /**********
+    * Set up and get a listening socket
+    ***********/
     listenSock = getListenerSocket();
     if (listenSock == -1) {
         fprintf(stderr, "Failed to establish listener socket\n");
@@ -263,23 +399,27 @@ int main(int argc, char *argv[]) {
     pollfds[0].events = POLLIN;
     fdCount = 1;
 
-    //Try to connect to first port # provided
-    firstOutSock = establishConnectionToRouter(firstOutPortStr);
-    if(firstOutSock != -1){
-        addToPollfds(pollfds, firstOutSock, &fdCount, &fdSize);
-    }
 
-    if(twoRouters){
-        secondOutSock = establishConnectionToRouter(secondOutPortStr);
-        if(secondOutSock != -1){
-            addToPollfds(pollfds, secondOutSock, &fdCount, &fdSize);
-        }
-    }
 
+    /**********
+    * Try to connect to port #s provided
+    ***********/
+    if((firstOutSock = establishConnectionToRouter(firstOutPortStr, pollfds,
+            &fdCount, &fdSize)) != -1)
+        firstIsConnected = TRUE;
+
+
+    if(twoRouters)
+        if((secondOutSock = establishConnectionToRouter(secondOutPortStr,
+            pollfds, &fdCount, &fdSize)) != -1)
+            secondIsConnected = TRUE;
+
+    time(&lastPrintedTime);    //Initialize to now to wait full 2 seconds
 
     for(;;) {
-        printf("About to wait for something to happen\n" );
-        pollCount = poll(pollfds, fdCount, 2 * MILSECINSEC);
+        wait = 1.0 * MILSECINSEC;
+
+        pollCount = poll(pollfds, fdCount, wait);
 
         if (pollCount == -1) {
             perror("poll");
@@ -304,52 +444,93 @@ int main(int argc, char *argv[]) {
                             continue;
                         }
                         namebuf[numbytes] = '\0';
-                        setDistanceToRouter(namebuf[0], 1);
-                        addToPollfds(pollfds, newfd, &fdCount, &fdSize);
+                        if (send(newfd, myName, 1, 0) == -1)
+                    		perror("send");
 
-                        printf("router: new connection on file descriptor %d\n",
-                            newfd);
+                        //Set distance to new connection = 1
+                        setDistanceAndNextHop(namebuf[0], 1, namebuf[0]);
+                        addToPollfds(pollfds, newfd, &fdCount, &fdSize,
+                            namebuf[0]);
+
+                        printf("New connection from router %c *************\n",
+                            namebuf[0]);
                     }
                 }
-                else {
-
-                    // If not the listener, we're just a regular client
-                    nbytes = recv(pollfds[i].fd, buf, sizeof buf, 0);
+                else {// If not the listener, receiving a transmission
+                    nbytes = recv(pollfds[i].fd, buf, MAXBUFLEN, 0);
                     senderfd = pollfds[i].fd;
 
                     if (nbytes <= 0) {
                         // Got error or connection closed by client
                         if (nbytes == 0) {
                             // Connection closed
-                            printf("pollserver: socket %d hung up\n", senderfd);
+                            printf("Router %c on socket %d hung up**********\n",
+                                nameOfPollfd[i], senderfd);
                         } else {
                             perror("recv");
                         }
-                        //Cleanup dead connections
+
+                        //Check if connection is one we manage
+                        if(senderfd == firstOutSock){
+                            firstIsConnected = FALSE;
+                        }
+                        else if(twoRouters && senderfd == secondOutSock){
+                            secondIsConnected = FALSE;
+                        }
                         close(pollfds[i].fd);
+                        deleteRouterFromTable(nameOfPollfd[i]);
                         deleteFromPollfds(pollfds, i, &fdCount);
-                        //TODO:remove from paths
+
 
                     } else {
                         // We got some good data from a client
+                        buf[nbytes] = '\0';
+                        updateRouterMessagesTable(nameOfPollfd[i], buf);
+                    }
+                }
+            }
+        }
 
-                        printf("%s\n", buf);
+        time(&curTime);
+        if (difftime(curTime, lastPrintedTime) >= 2.0){
+            updateRouterTable();
+            printRouterTable();
+            msg = (char *)malloc(sizeof(char*)*MAXBUFLEN);
+            if(!msg){
+                perror("malloc msg");
+            }
+            memset(msg, 0, sizeof(MAXBUFLEN));
+            createMessage(msg);
 
-                        for(int j = 0; j < fdCount; j++) {
-                            // Send to everyone!
-                            destfd = pollfds[j].fd;
+            for(int j = 0; j < fdCount; j++) {
+                destfd = pollfds[j].fd;
+                // Send to everyone, except the listener
+                if (destfd != listenSock) {
 
-                            // Except the listener and ourselves
-                            if (destfd != listenSock && destfd != senderfd) {
-                                if (send(destfd, buf, nbytes, 0) == -1) {
-                                    perror("send");
-                                }
-                            }
-                        }
+                    if (send(destfd, msg, strlen(msg), 0) == -1) {
+                        perror("send");
                     }
 
-                } // END handle data from client
-            } // END got ready-to-read from poll()
-        } // END looping through file descriptors
+                }
+            }
+            memset(msg, 0, (size_t)MAXBUFLEN);
+            free(msg);
+            msg = NULL;
+
+
+            if (!firstIsConnected){
+                if((firstOutSock = establishConnectionToRouter(firstOutPortStr,
+                    pollfds, &fdCount, &fdSize)) != -1)
+                    firstIsConnected = TRUE;
+            }
+
+            if (twoRouters && !secondIsConnected){
+                if((secondOutSock= establishConnectionToRouter(secondOutPortStr,
+                        pollfds, &fdCount, &fdSize)) != -1)
+                    secondIsConnected = TRUE;
+            }
+            resetRouterMessagesTable();
+            time(&lastPrintedTime);
+        }
     }
 }
