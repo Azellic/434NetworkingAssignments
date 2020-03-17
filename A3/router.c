@@ -285,6 +285,9 @@ void updateRouterMessagesTable(char senderName, char msg[MAXBUFLEN]){
     }
 }
 
+/***************************************************************************
+* Updates the router table using the values in the routerMessages table
+****************************************************************************/
 void updateRouterTable(){
     int min;
     char senderName, destName;
@@ -316,6 +319,9 @@ void updateRouterTable(){
     }
 }
 
+/***************************************************************************
+* Resets the router message table to default state
+****************************************************************************/
 void resetRouterMessagesTable(){
     for(int i = 0; i < NUMROUTERS; i++){
         for(int j = 0; j < NUMROUTERS; j ++){
